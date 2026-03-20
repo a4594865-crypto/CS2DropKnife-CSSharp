@@ -3,7 +3,6 @@ using CounterStrikeSharp.API.Core;
 using CounterStrikeSharp.API.Core.Attributes.Registration;
 using CounterStrikeSharp.API.Modules.Commands;
 using CounterStrikeSharp.API.Modules.Events;
-using CounterStrikeSharp.API.Modules.Utils;
 
 namespace DropKnife;
 
@@ -28,32 +27,13 @@ public class DropKnife : BasePlugin
         return HookResult.Continue;
     }
 
-    // --- 攔截丟刀邏輯 (使用 EventItemDrop 避開編譯錯誤) ---
-    [GameEventHandler]
-    public HookResult OnItemDrop(EventItemDrop @event, GameEventInfo info)
-    {
-        var player = @event.Userid;
-        if (player == null || !player.IsValid) return HookResult.Continue;
-
-        // 如果掉落的是刀子 (Item 名稱包含 knife 或 bayonet)
-        if (@event.Item.Contains("knife") || @event.Item.Contains("bayonet"))
-        {
-            // 檢查是否按著 E (Use) 鍵；沒按 E (主動丟 G) 就攔截
-            if (!player.Buttons.HasFlag(PlayerButtons.Use))
-            {
-                return HookResult.Stop; 
-            }
-        }
-        return HookResult.Continue;
-    }
-
     [GameEventHandler]
     public HookResult OnPlayerChat(EventPlayerChat @event, GameEventInfo @info)
     {
-        // 取得玩家訊息並直接轉換成小寫 (解決大小寫不分問題)
+        // 取得玩家訊息並直接轉換成小寫
         string message = @event.Text.ToLower().Trim();
 
-        // 判斷指令
+        // 判斷指令（支援大小寫不分，以及常用指令格式）
         if (message.Equals("!drop") || message.Equals("/drop") || message.Equals(".drop") || 
             message.Equals("!d") || message.Equals("/d") || message.Equals(".d"))
         {
@@ -66,7 +46,7 @@ public class DropKnife : BasePlugin
                     return HookResult.Continue;
                 }
 
-                // 執行發刀 (維持你原本的邏輯)
+                // 執行發刀
                 DoDropKnife(player);
             }
             catch (System.Exception)
@@ -95,8 +75,7 @@ public class DropKnife : BasePlugin
                 var playerPosition = player.PlayerPawn.Value!.AbsOrigin;
                 if (playerPosition == null) return;
 
-                // 保持你原本的 +50.0f 座標偏移
-                var newPosition = new Vector(
+                var newPosition = new CounterStrikeSharp.API.Modules.Utils.Vector(
                     playerPosition.X,
                     playerPosition.Y,
                     playerPosition.Z + 50.0f
