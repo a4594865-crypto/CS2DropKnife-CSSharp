@@ -4,14 +4,13 @@ using CounterStrikeSharp.API.Core.Attributes.Registration;
 using CounterStrikeSharp.API.Modules.Commands;
 using CounterStrikeSharp.API.Modules.Events;
 using CounterStrikeSharp.API.Modules.Utils;
-using CounterStrikeSharp.API.Modules.Entities; // 補上這個以支援實體操作
 
 namespace DropKnife;
 
 public class DropKnife : BasePlugin
 {
     public override string ModuleName => "Drop Knife [T W Edition]";
-    public override string ModuleVersion => "1.0.3";
+    public override string ModuleVersion => "1.0.6";
     public override string ModuleAuthor => "PanheadGG & Gemini";
 
     private static bool drop_knife_only_one_time = true;
@@ -19,30 +18,7 @@ public class DropKnife : BasePlugin
 
     public override void Load(bool hotReload)
     {
-        // 在插件載入時註冊丟刀監聽器，這是最穩定的寫法
-        RegisterListener<Listeners.OnWeaponDrop>(OnWeaponDropHandler);
-        Console.WriteLine("Drop Knife [T W Edition] Loaded!");
-    }
-
-    // 處理丟刀邏輯
-    private void OnWeaponDropHandler(CCSPlayerController player, CBasePlayerWeapon weapon)
-    {
-        if (player == null || !player.IsValid || weapon == null) return;
-
-        string weaponName = weapon.DesignerName;
-
-        // 判斷是否為刀子
-        if (weaponName.Contains("knife") || weaponName.Contains("bayonet"))
-        {
-            // 如果玩家沒有按著 E 鍵 (InUse)，就代表是按 G 丟刀
-            if (!player.Buttons.HasFlag(PlayerButtons.InUse))
-            {
-                // 注意：在 Listener 中無法直接 return HookResult.Stop
-                // 這裡的技巧是：如果偵測到是主動丟刀，我們讓玩家重新給予一把刀
-                // 或是配合 mp_drop_knife_enable 0 使用。
-                // 為了達到競技平台效果，建議在伺服器 cfg 開啟 mp_drop_knife_enable 1
-            }
-        }
+        Console.WriteLine("Drop Knife [T W Edition] v1.0.364 Loaded!");
     }
 
     [GameEventHandler]
@@ -52,12 +28,39 @@ public class DropKnife : BasePlugin
         return HookResult.Continue;
     }
 
+    // 處理丟刀邏輯：攔截 G (主動丟棄)，允許 E (換刀)
+    [GameEventHandler]
+    public HookResult OnWeaponDrop(EventWeaponDrop @event, GameEventInfo info)
+    {
+        var player = @event.Userid;
+        if (player == null || !player.IsValid) return HookResult.Continue;
+
+        string weaponName = @event.Weapon;
+
+        // 判斷是否為刀子
+        if (weaponName.Contains("knife") || weaponName.Contains("bayonet"))
+        {
+            // 在 v1.0.364 中，使用 HasFlag 檢查 Use 鍵
+            // 如果玩家正按著 E (Use)，允許換刀動作
+            if (player.Buttons.HasFlag(PlayerButtons.Use))
+            {
+                return HookResult.Continue;
+            }
+            else
+            {
+                // 如果沒有按住 E，代表是按 G 丟刀，直接攔截 (無訊息)
+                return HookResult.Stop;
+            }
+        }
+        return HookResult.Continue;
+    }
+
     [GameEventHandler]
     public HookResult OnPlayerChat(EventPlayerChat @event, GameEventInfo @info)
     {
         string message = @event.Text.ToLower().Trim();
 
-        // 支援大小寫不分：!D, .d, .DROP 等通通吃
+        // 支援大小寫不分：.d, .D, !DROP 等
         if (message.Equals("!drop") || message.Equals("/drop") || message.Equals(".drop") || 
             message.Equals("!d") || message.Equals("/d") || message.Equals(".d"))
         {
@@ -73,22 +76,32 @@ public class DropKnife : BasePlugin
 
     public void DoDropKnife(CCSPlayerController sender)
     {
-        if (drop_knife_only_one_time)
-        {
-            if (dropedPlayerSlots.Contains((int)sender.UserId!)) return;
-        }
+        // 檢查每局一次限制 (預設 True)
+        if (drop_knife_only_one_time && dropedPlayerSlots.Contains((int)sender.UserId!)) return;
 
         foreach (var player in Utilities.GetPlayers())
         {
             if (player.PawnIsAlive && player.Team == sender.Team)
             {
-                // 生成新刀給全隊
+                // 給予全隊軍刀 (會掉落在腳下)
                 player.GiveNamedItem("weapon_knife");
-                
-                // 這裡不使用 Teleport 也可以，GiveNamedItem 會直接掉在腳下
-                // 若要像原版在頭上掉落，可保留 Teleport 邏輯
             }
         }
         dropedPlayerSlots.Add((int)sender.UserId!);
+    }
+
+    [ConsoleCommand("drop_knife_only_one_time", "控制每局發刀次數限制")]
+    [CommandHelper(minArgs: 0, usage: "[0/1]", whoCanExecute: CommandUsage.CLIENT_AND_SERVER)]
+    public void OnCommand(CCSPlayerController? caller, CommandInfo command)
+    {
+        if (command.ArgCount == 1) 
+        { 
+            caller?.PrintToConsole($"[T W] 目前限制狀態: {(drop_knife_only_one_time ? "開啟" : "關閉")}"); 
+            return; 
+        }
+
+        string arg = command.ArgByIndex(1).ToLower();
+        drop_knife_only_one_time = !(arg == "0" || arg == "false" || arg == "off");
+        caller?.PrintToConsole($"[T W] 發刀限制已切換為: {(drop_knife_only_one_time ? "ON" : "OFF")}");
     }
 }
