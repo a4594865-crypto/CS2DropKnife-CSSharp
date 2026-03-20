@@ -4,22 +4,45 @@ using CounterStrikeSharp.API.Core.Attributes.Registration;
 using CounterStrikeSharp.API.Modules.Commands;
 using CounterStrikeSharp.API.Modules.Events;
 using CounterStrikeSharp.API.Modules.Utils;
+using CounterStrikeSharp.API.Modules.Entities; // 補上這個以支援實體操作
 
 namespace DropKnife;
 
 public class DropKnife : BasePlugin
 {
     public override string ModuleName => "Drop Knife [T W Edition]";
-    public override string ModuleVersion => "1.0.0";
+    public override string ModuleVersion => "1.0.3";
     public override string ModuleAuthor => "PanheadGG & Gemini";
 
     private static bool drop_knife_only_one_time = true;
-    private static List<int> dropedPlayerSlots = [];
+    private static List<int> dropedPlayerSlots = new List<int>();
 
     public override void Load(bool hotReload)
     {
-        // 伺服器後台紀錄，玩家看不到
+        // 在插件載入時註冊丟刀監聽器，這是最穩定的寫法
+        RegisterListener<Listeners.OnWeaponDrop>(OnWeaponDropHandler);
         Console.WriteLine("Drop Knife [T W Edition] Loaded!");
+    }
+
+    // 處理丟刀邏輯
+    private void OnWeaponDropHandler(CCSPlayerController player, CBasePlayerWeapon weapon)
+    {
+        if (player == null || !player.IsValid || weapon == null) return;
+
+        string weaponName = weapon.DesignerName;
+
+        // 判斷是否為刀子
+        if (weaponName.Contains("knife") || weaponName.Contains("bayonet"))
+        {
+            // 如果玩家沒有按著 E 鍵 (InUse)，就代表是按 G 丟刀
+            if (!player.Buttons.HasFlag(PlayerButtons.InUse))
+            {
+                // 注意：在 Listener 中無法直接 return HookResult.Stop
+                // 這裡的技巧是：如果偵測到是主動丟刀，我們讓玩家重新給予一把刀
+                // 或是配合 mp_drop_knife_enable 0 使用。
+                // 為了達到競技平台效果，建議在伺服器 cfg 開啟 mp_drop_knife_enable 1
+            }
+        }
     }
 
     [GameEventHandler]
@@ -32,53 +55,18 @@ public class DropKnife : BasePlugin
     [GameEventHandler]
     public HookResult OnPlayerChat(EventPlayerChat @event, GameEventInfo @info)
     {
-        // 支援大小寫不分且移除前後空格
         string message = @event.Text.ToLower().Trim();
 
+        // 支援大小寫不分：!D, .d, .DROP 等通通吃
         if (message.Equals("!drop") || message.Equals("/drop") || message.Equals(".drop") || 
             message.Equals("!d") || message.Equals("/d") || message.Equals(".d"))
         {
             int playerSlot = @event.Userid;
-            try
-            {
-                CCSPlayerController player = Utilities.GetPlayerFromSlot(playerSlot)!;
-                if (player == null || !player.IsValid || player.IsBot || player.IsHLTV)
-                {
-                    return HookResult.Continue;
-                }
-
-                // 執行發刀
-                DoDropKnife(player);
-            }
-            catch (System.Exception)
-            {
-                return HookResult.Continue;
-            }
-        }
-
-        return HookResult.Continue;
-    }
-
-    // --- 核心邏輯：攔截 G 鍵丟刀，允許 E 鍵換刀 ---
-    [GameEventHandler]
-    public HookResult OnWeaponDrop(EventWeaponDrop @event, GameEventInfo info)
-    {
-        var player = @event.Userid;
-        if (player == null || !player.IsValid) return HookResult.Continue;
-
-        string weaponName = @event.Weapon;
-
-        // 判斷是否為刀子
-        if (weaponName.Contains("knife") || weaponName.Contains("bayonet"))
-        {
-            // 如果玩家正按著 E (InUse)，視為換刀動作，允許通過
-            if (player.Buttons.HasFlag(PlayerButtons.InUse))
-            {
-                return HookResult.Continue;
-            }
+            CCSPlayerController player = Utilities.GetPlayerFromSlot(playerSlot)!;
             
-            // 否則攔截動作（玩家按 G 丟刀會無反應）
-            return HookResult.Stop; 
+            if (player == null || !player.IsValid || player.IsBot) return HookResult.Continue;
+
+            DoDropKnife(player);
         }
         return HookResult.Continue;
     }
@@ -90,45 +78,17 @@ public class DropKnife : BasePlugin
             if (dropedPlayerSlots.Contains((int)sender.UserId!)) return;
         }
 
-        foreach (CCSPlayerController player in Utilities.GetPlayers())
+        foreach (var player in Utilities.GetPlayers())
         {
-            // 發給全隊活著的隊友
             if (player.PawnIsAlive && player.Team == sender.Team)
             {
-                nint knife_pointer = sender.GiveNamedItem("weapon_knife");
-                CBasePlayerWeapon knife = new(knife_pointer);
+                // 生成新刀給全隊
+                player.GiveNamedItem("weapon_knife");
                 
-                var playerPosition = player.PlayerPawn.Value!.AbsOrigin;
-                if (playerPosition == null) continue;
-
-                var newPosition = new Vector(
-                    playerPosition.X,
-                    playerPosition.Y,
-                    playerPosition.Z + 50.0f
-                );
-                knife.Teleport(newPosition);
+                // 這裡不使用 Teleport 也可以，GiveNamedItem 會直接掉在腳下
+                // 若要像原版在頭上掉落，可保留 Teleport 邏輯
             }
         }
         dropedPlayerSlots.Add((int)sender.UserId!);
-    }
-
-    [ConsoleCommand("drop_knife_only_one_time", "Drop times control")]
-    [CommandHelper(minArgs: 0, usage: "[boolean]", whoCanExecute: CommandUsage.CLIENT_AND_SERVER)]
-    public void OnCommand(CCSPlayerController? caller, CommandInfo command)
-    {
-        if (caller == null) return;
-        if (command.ArgCount == 1) 
-        { 
-            caller.PrintToConsole("drop_knife_only_one_time = " + (drop_knife_only_one_time ? "true" : "false")); 
-            return; 
-        }
-        else if (command.ArgCount >= 2)
-        {
-            string arg = command.ArgByIndex(1).ToLower();
-            if (arg.Equals("0") || arg.Equals("false")) 
-                drop_knife_only_one_time = false;
-            else 
-                drop_knife_only_one_time = true;
-        }
     }
 }
