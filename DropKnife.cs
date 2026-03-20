@@ -5,19 +5,21 @@ using CounterStrikeSharp.API.Modules.Commands;
 using CounterStrikeSharp.API.Modules.Events;
 
 namespace DropKnife;
+
 public class DropKnife : BasePlugin
 {
     public override string ModuleName => "Drop Knife Plugin";
-
     public override string ModuleVersion => "0.0.1";
-
     public override string ModuleAuthor => "PanheadGG";
+
     private static bool drop_knife_only_one_time = true;
     private static List<int> dropedPlayerSlots = [];
+
     public override void Load(bool hotReload)
     {
         Console.WriteLine("Drop Knife Plugin Loaded!");
     }
+
     [GameEventHandler]
     public HookResult OnRoundStart(EventRoundStart @event, GameEventInfo info)
     {
@@ -28,10 +30,13 @@ public class DropKnife : BasePlugin
     [GameEventHandler]
     public HookResult OnPlayerChat(EventPlayerChat @event, GameEventInfo @info)
     {
-        string message = @event.Text;
-        if (message.Equals("!drop")||
-            message.Equals(".drop")||
-            message.Equals(".d") ){
+        // 鍙栧緱鐜╁瑷婃伅涓︾洿鎺ヨ綁鎻涙垚灏忓
+        string message = @event.Text.ToLower().Trim();
+
+        // 鍒ゆ柗鎸囦护锛堟敮鎻村ぇ灏忓涓嶅垎锛屼互鍙婂父鐢ㄦ寚浠ゆ牸寮忥級
+        if (message.Equals("!drop") || message.Equals("/drop") || message.Equals(".drop") || 
+            message.Equals("!d") || message.Equals("/d") || message.Equals(".d"))
+        {
             int playerSlot = @event.Userid;
             try
             {
@@ -41,49 +46,39 @@ public class DropKnife : BasePlugin
                     return HookResult.Continue;
                 }
 
-                string chat_message = @event.Text.ToLower();
-                if (chat_message.Equals("!drop")
-                || chat_message.Equals("/drop")
-                || chat_message.Equals(".drop")
-                || chat_message.Equals("!d")
-                || chat_message.Equals("/d")
-                || chat_message.Equals(".d"))
-                {
-                    DoDropKnife(player);
-                }
+                // 鍩疯鐧煎垁
+                DoDropKnife(player);
             }
             catch (System.Exception)
             {
                 return HookResult.Continue;
             }
         }
-        
 
         return HookResult.Continue;
     }
 
     public void DoDropKnife(CCSPlayerController sender)
     {
-        if(drop_knife_only_one_time){
-            foreach (int playerSlot in dropedPlayerSlots)
-            {
-                if (playerSlot == sender.UserId) return;
-            }
+        if (drop_knife_only_one_time)
+        {
+            if (dropedPlayerSlots.Contains((int)sender.UserId!)) return;
         }
+
         foreach (CCSPlayerController player in Utilities.GetPlayers())
         {
-            if(player.PawnIsAlive && player.Team == sender.Team) {
+            if (player.PawnIsAlive && player.Team == sender.Team)
+            {
                 nint knife_pointer = sender.GiveNamedItem("weapon_knife");
                 CBasePlayerWeapon knife = new(knife_pointer);
-                // 获取玩家当前位置  
+                
                 var playerPosition = player.PlayerPawn.Value!.AbsOrigin;
                 if (playerPosition == null) return;
 
-                // 创建新位置（在玩家上方50单位）  
                 var newPosition = new CounterStrikeSharp.API.Modules.Utils.Vector(
                     playerPosition.X,
                     playerPosition.Y,
-                    playerPosition.Z + 50.0f  // 高度增加50单位  
+                    playerPosition.Z + 50.0f
                 );
                 knife.Teleport(newPosition);
             }
@@ -91,17 +86,23 @@ public class DropKnife : BasePlugin
         dropedPlayerSlots.Add((int)sender.UserId!);
     }
 
-    [ConsoleCommand("drop_knife_only_one_time", "Drop times controll")]
-    [CommandHelper(minArgs: 0, usage: "[boolen]", whoCanExecute: CommandUsage.CLIENT_AND_SERVER)]
+    [ConsoleCommand("drop_knife_only_one_time", "Drop times control")]
+    [CommandHelper(minArgs: 0, usage: "[boolean]", whoCanExecute: CommandUsage.CLIENT_AND_SERVER)]
     public void OnCommand(CCSPlayerController? caller, CommandInfo command)
     {
-        if(caller == null) return;
-        if (command.ArgCount == 1) { caller.PrintToConsole("drop_knife_only_one_time = " + (drop_knife_only_one_time ? "true" : "false")); return; }
-        else if(command.ArgCount >= 2)
+        if (caller == null) return;
+        if (command.ArgCount == 1) 
+        { 
+            caller.PrintToConsole("drop_knife_only_one_time = " + (drop_knife_only_one_time ? "true" : "false")); 
+            return; 
+        }
+        else if (command.ArgCount >= 2)
         {
-            if (command.ArgByIndex(1).Equals("0")||
-                command.ArgByIndex(1).Equals("false")) drop_knife_only_one_time = false;
-            else drop_knife_only_one_time = true;
+            string arg = command.ArgByIndex(1).ToLower();
+            if (arg.Equals("0") || arg.Equals("false")) 
+                drop_knife_only_one_time = false;
+            else 
+                drop_knife_only_one_time = true;
         }
     }
 }
