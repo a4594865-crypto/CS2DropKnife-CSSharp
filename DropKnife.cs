@@ -3,7 +3,7 @@ using CounterStrikeSharp.API.Core;
 using CounterStrikeSharp.API.Core.Attributes.Registration;
 using CounterStrikeSharp.API.Modules.Commands;
 using CounterStrikeSharp.API.Modules.Events;
-using CounterStrikeSharp.API.Modules.Utils; // 確保有這一行來支援 Vector 和 PlayerButtons
+using CounterStrikeSharp.API.Modules.Utils;
 
 namespace DropKnife;
 
@@ -28,15 +28,15 @@ public class DropKnife : BasePlugin
         return HookResult.Continue;
     }
 
-    // --- 新增：攔截丟刀邏輯 (方案 2) ---
+    // --- 攔截丟刀邏輯 (使用 EventItemDrop 避開編譯錯誤) ---
     [GameEventHandler]
-    public HookResult OnWeaponDrop(EventWeaponDrop @event, GameEventInfo info)
+    public HookResult OnItemDrop(EventItemDrop @event, GameEventInfo info)
     {
         var player = @event.Userid;
         if (player == null || !player.IsValid) return HookResult.Continue;
 
-        // 如果掉落的是刀子
-        if (@event.Weapon.Contains("knife") || @event.Weapon.Contains("bayonet"))
+        // 如果掉落的是刀子 (Item 名稱包含 knife 或 bayonet)
+        if (@event.Item.Contains("knife") || @event.Item.Contains("bayonet"))
         {
             // 檢查是否按著 E (Use) 鍵；沒按 E (主動丟 G) 就攔截
             if (!player.Buttons.HasFlag(PlayerButtons.Use))
@@ -50,7 +50,7 @@ public class DropKnife : BasePlugin
     [GameEventHandler]
     public HookResult OnPlayerChat(EventPlayerChat @event, GameEventInfo @info)
     {
-        // 取得玩家訊息並直接轉換成小寫 (解決大小寫問題)
+        // 取得玩家訊息並直接轉換成小寫 (解決大小寫不分問題)
         string message = @event.Text.ToLower().Trim();
 
         // 判斷指令
