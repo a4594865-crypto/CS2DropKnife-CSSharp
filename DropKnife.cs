@@ -3,47 +3,21 @@ using CounterStrikeSharp.API.Core;
 using CounterStrikeSharp.API.Core.Attributes.Registration;
 using CounterStrikeSharp.API.Modules.Commands;
 using CounterStrikeSharp.API.Modules.Events;
-using CounterStrikeSharp.API.Modules.Utils;
 
 namespace DropKnife;
 
 public class DropKnife : BasePlugin
 {
     public override string ModuleName => "Drop Knife Plugin";
-    public override string ModuleVersion => "1.0.3";
+    public override string ModuleVersion => "0.0.1";
     public override string ModuleAuthor => "PanheadGG";
 
     private static bool drop_knife_only_one_time = true;
-    private static List<int> dropedPlayerSlots = new List<int>();
+    private static List<int> dropedPlayerSlots = [];
 
     public override void Load(bool hotReload)
     {
-        // 使用字串 Hook，避開編譯器找不到 "EventItemDrop" 類型的問題
-        RegisterEventHandler<GameEvent>("item_drop", OnItemDropHandler);
-        Console.WriteLine("Drop Knife Plugin [T W Edition] Loaded!");
-    }
-
-    // 這裡改用通用 GameEvent，保證編譯通過
-    private HookResult OnItemDropHandler(GameEvent @event, GameEventInfo info)
-    {
-        // 既然你的環境 Userid 是 int，我們直接從 GetInt 抓
-        int playerSlot = @event.GetInt("userid");
-        CCSPlayerController player = Utilities.GetPlayerFromSlot(playerSlot)!;
-        
-        if (player == null || !player.IsValid) return HookResult.Continue;
-
-        // 取得掉落物品名稱
-        string itemName = @event.GetString("item");
-
-        if (itemName.Contains("knife") || itemName.Contains("bayonet"))
-        {
-            // 判斷按鍵：如果沒按著 E (Use)，就攔截丟刀
-            if (!player.Buttons.HasFlag(PlayerButtons.Use))
-            {
-                return HookResult.Stop; 
-            }
-        }
-        return HookResult.Continue;
+        Console.WriteLine("Drop Knife Plugin Loaded!");
     }
 
     [GameEventHandler]
@@ -56,12 +30,13 @@ public class DropKnife : BasePlugin
     [GameEventHandler]
     public HookResult OnPlayerChat(EventPlayerChat @event, GameEventInfo @info)
     {
+        // 取得玩家訊息並直接轉換成小寫
         string message = @event.Text.ToLower().Trim();
 
+        // 判斷指令（支援大小寫不分，以及常用指令格式）
         if (message.Equals("!drop") || message.Equals("/drop") || message.Equals(".drop") || 
             message.Equals("!d") || message.Equals("/d") || message.Equals(".d"))
         {
-            // 保持你原本能編過的 int 寫法
             int playerSlot = @event.Userid;
             try
             {
@@ -71,6 +46,7 @@ public class DropKnife : BasePlugin
                     return HookResult.Continue;
                 }
 
+                // 執行發刀
                 DoDropKnife(player);
             }
             catch (System.Exception)
@@ -96,13 +72,10 @@ public class DropKnife : BasePlugin
                 nint knife_pointer = sender.GiveNamedItem("weapon_knife");
                 CBasePlayerWeapon knife = new(knife_pointer);
                 
-                var playerPawn = player.PlayerPawn.Value;
-                if (playerPawn == null) continue;
+                var playerPosition = player.PlayerPawn.Value!.AbsOrigin;
+                if (playerPosition == null) return;
 
-                var playerPosition = playerPawn.AbsOrigin;
-                if (playerPosition == null) continue;
-
-                var newPosition = new Vector(
+                var newPosition = new CounterStrikeSharp.API.Modules.Utils.Vector(
                     playerPosition.X,
                     playerPosition.Y,
                     playerPosition.Z + 50.0f
