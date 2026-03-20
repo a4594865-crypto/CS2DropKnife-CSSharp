@@ -3,17 +3,18 @@ using CounterStrikeSharp.API.Core;
 using CounterStrikeSharp.API.Core.Attributes.Registration;
 using CounterStrikeSharp.API.Modules.Commands;
 using CounterStrikeSharp.API.Modules.Events;
+using CounterStrikeSharp.API.Modules.Utils; // 確保有這行，Teleport 用的 Vector 才不會報錯
 
 namespace DropKnife;
 
 public class DropKnife : BasePlugin
 {
     public override string ModuleName => "Drop Knife Plugin";
-    public override string ModuleVersion => "0.0.1";
+    public override string ModuleVersion => "1.0.1"; // 建議跳個版本號
     public override string ModuleAuthor => "PanheadGG";
 
     private static bool drop_knife_only_one_time = true;
-    private static List<int> dropedPlayerSlots = [];
+    private static List<int> dropedPlayerSlots = new List<int>();
 
     public override void Load(bool hotReload)
     {
@@ -27,32 +28,43 @@ public class DropKnife : BasePlugin
         return HookResult.Continue;
     }
 
+    // --- 這裡就是你原本缺少的「方案 2」核心邏輯 ---
+    [GameEventHandler]
+    public HookResult OnItemDrop(EventItemDrop @event, GameEventInfo info)
+    {
+        var player = @event.Userid;
+        if (player == null || !player.IsValid) return HookResult.Continue;
+
+        // 檢查掉落的是否為刀子
+        if (@event.Item.Contains("knife") || @event.Item.Contains("bayonet"))
+        {
+            // 只要玩家「沒有」按著 E (Use)，就攔截丟刀動作
+            // 這樣按 G 就丟不掉，但按著 E 撿地上的刀就能成功「交換」
+            if (!player.Buttons.HasFlag(PlayerButtons.Use))
+            {
+                return HookResult.Stop; 
+            }
+        }
+        return HookResult.Continue;
+    }
+
     [GameEventHandler]
     public HookResult OnPlayerChat(EventPlayerChat @event, GameEventInfo @info)
     {
-        // 取得玩家訊息並直接轉換成小寫
         string message = @event.Text.ToLower().Trim();
 
-        // 判斷指令（支援大小寫不分，以及常用指令格式）
         if (message.Equals("!drop") || message.Equals("/drop") || message.Equals(".drop") || 
             message.Equals("!d") || message.Equals("/d") || message.Equals(".d"))
         {
-            int playerSlot = @event.Userid;
-            try
-            {
-                CCSPlayerController player = Utilities.GetPlayerFromSlot(playerSlot)!;
-                if (player == null || !player.IsValid || player.IsBot || player.IsHLTV)
-                {
-                    return HookResult.Continue;
-                }
+            // 注意：在 v1.0.364，@event.Userid 直接就是 controller 物件
+            CCSPlayerController player = @event.Userid;
 
-                // 執行發刀
-                DoDropKnife(player);
-            }
-            catch (System.Exception)
+            if (player == null || !player.IsValid || player.IsBot || player.IsHLTV)
             {
                 return HookResult.Continue;
             }
+
+            DoDropKnife(player);
         }
 
         return HookResult.Continue;
@@ -60,10 +72,7 @@ public class DropKnife : BasePlugin
 
     public void DoDropKnife(CCSPlayerController sender)
     {
-        if (drop_knife_only_one_time)
-        {
-            if (dropedPlayerSlots.Contains((int)sender.UserId!)) return;
-        }
+        if (drop_knife_only_one_time && dropedPlayerSlots.Contains((int)sender.UserId!)) return;
 
         foreach (CCSPlayerController player in Utilities.GetPlayers())
         {
@@ -72,10 +81,10 @@ public class DropKnife : BasePlugin
                 nint knife_pointer = sender.GiveNamedItem("weapon_knife");
                 CBasePlayerWeapon knife = new(knife_pointer);
                 
-                var playerPosition = player.PlayerPawn.Value!.AbsOrigin;
-                if (playerPosition == null) return;
+                var playerPosition = player.PlayerPawn.Value?.AbsOrigin;
+                if (playerPosition == null) continue;
 
-                var newPosition = new CounterStrikeSharp.API.Modules.Utils.Vector(
+                var newPosition = new Vector(
                     playerPosition.X,
                     playerPosition.Y,
                     playerPosition.Z + 50.0f
@@ -99,10 +108,7 @@ public class DropKnife : BasePlugin
         else if (command.ArgCount >= 2)
         {
             string arg = command.ArgByIndex(1).ToLower();
-            if (arg.Equals("0") || arg.Equals("false")) 
-                drop_knife_only_one_time = false;
-            else 
-                drop_knife_only_one_time = true;
+            drop_knife_only_one_time = !(arg.Equals("0") || arg.Equals("false"));
         }
     }
 }
