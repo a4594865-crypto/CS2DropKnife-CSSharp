@@ -3,13 +3,14 @@ using CounterStrikeSharp.API.Core;
 using CounterStrikeSharp.API.Core.Attributes.Registration;
 using CounterStrikeSharp.API.Modules.Commands;
 using CounterStrikeSharp.API.Modules.Events;
+using CounterStrikeSharp.API.Modules.Utils;
 
 namespace DropKnife;
 
 public class DropKnife : BasePlugin
 {
     public override string ModuleName => "Drop Knife Plugin";
-    public override string ModuleVersion => "0.0.1";
+    public override string ModuleVersion => "0.0.2";
     public override string ModuleAuthor => "PanheadGG";
 
     private static bool drop_knife_only_one_time = true;
@@ -30,13 +31,17 @@ public class DropKnife : BasePlugin
     [GameEventHandler]
     public HookResult OnPlayerChat(EventPlayerChat @event, GameEventInfo @info)
     {
-        // 取得玩家訊息並直接轉換成小寫
         string message = @event.Text.ToLower().Trim();
 
-        // 判斷指令（支援大小寫不分，以及常用指令格式）
         if (message.Equals("!drop") || message.Equals("/drop") || message.Equals(".drop") || 
             message.Equals("!d") || message.Equals("/d") || message.Equals(".d"))
         {
+            // 【時間限制】18秒凍結時間一過，立刻在這裡攔截，指令直接失效！
+            if (GameRules().FreezePeriod == false)
+            {
+                return HookResult.Continue;
+            }
+
             int playerSlot = @event.Userid;
             try
             {
@@ -46,7 +51,6 @@ public class DropKnife : BasePlugin
                     return HookResult.Continue;
                 }
 
-                // 執行發刀
                 DoDropKnife(player);
             }
             catch (System.Exception)
@@ -67,15 +71,23 @@ public class DropKnife : BasePlugin
 
         foreach (CCSPlayerController player in Utilities.GetPlayers())
         {
-            if (player.PawnIsAlive && player.Team == sender.Team)
+            // 【核心限制：player != sender】
+            // 這裡設定：必須跟發言者同隊、必須活著，且「當前這個人不能是發言者自己」
+            // 5v5 滿員狀態下，這行會精準篩選出其餘的 4 個隊友，並把發言者自己跳過！
+            if (player != null && player.PawnIsAlive && player.Team == sender.Team && player != sender)
             {
                 nint knife_pointer = sender.GiveNamedItem("weapon_knife");
+                
+                // 【安全鎖】防止過期或異常時導致伺服器卡頓
+                if (knife_pointer == nint.Zero) continue;
+
                 CBasePlayerWeapon knife = new(knife_pointer);
                 
-                var playerPosition = player.PlayerPawn.Value!.AbsOrigin;
-                if (playerPosition == null) return;
+                var playerPosition = player.PlayerPawn.Value?.AbsOrigin;
+                if (playerPosition == null) continue;
 
-                var newPosition = new CounterStrikeSharp.API.Modules.Utils.Vector(
+                // 傳送到其餘 4 個隊友的腳下（往上抬高 50 單位）
+                var newPosition = new Vector(
                     playerPosition.X,
                     playerPosition.Y,
                     playerPosition.Z + 50.0f
@@ -86,23 +98,9 @@ public class DropKnife : BasePlugin
         dropedPlayerSlots.Add((int)sender.UserId!);
     }
 
-    [ConsoleCommand("drop_knife_only_one_time", "Drop times control")]
-    [CommandHelper(minArgs: 0, usage: "[boolean]", whoCanExecute: CommandUsage.CLIENT_AND_SERVER)]
-    public void OnCommand(CCSPlayerController? caller, CommandInfo command)
+    private static CCSGameRules GameRules()
     {
-        if (caller == null) return;
-        if (command.ArgCount == 1) 
-        { 
-            caller.PrintToConsole("drop_knife_only_one_time = " + (drop_knife_only_one_time ? "true" : "false")); 
-            return; 
-        }
-        else if (command.ArgCount >= 2)
-        {
-            string arg = command.ArgByIndex(1).ToLower();
-            if (arg.Equals("0") || arg.Equals("false")) 
-                drop_knife_only_one_time = false;
-            else 
-                drop_knife_only_one_time = true;
-        }
+        return Utilities.FindAllEntitiesByDesignerName<CCSGameRulesProxy>("cs_gamerules").First().GameRules!;
     }
-}
+
+    [ConsoleCommand("drop_knife_only_one_time", "Drop times control")]
