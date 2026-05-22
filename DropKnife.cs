@@ -3,14 +3,13 @@ using CounterStrikeSharp.API.Core;
 using CounterStrikeSharp.API.Core.Attributes.Registration;
 using CounterStrikeSharp.API.Modules.Commands;
 using CounterStrikeSharp.API.Modules.Events;
-using CounterStrikeSharp.API.Modules.Utils;
 
 namespace DropKnife;
 
 public class DropKnife : BasePlugin
 {
     public override string ModuleName => "Drop Knife Plugin";
-    public override string ModuleVersion => "0.0.5"; 
+    public override string ModuleVersion => "0.0.1";
     public override string ModuleAuthor => "PanheadGG";
 
     private static bool drop_knife_only_one_time = true;
@@ -18,8 +17,7 @@ public class DropKnife : BasePlugin
 
     public override void Load(bool hotReload)
     {
-        // 移除所有錯誤的 Listener 註冊，保持乾淨
-        Console.WriteLine("Drop Knife Plugin Loaded! (Standard Safe Version)");
+        Console.WriteLine("Drop Knife Plugin Loaded!");
     }
 
     [GameEventHandler]
@@ -32,8 +30,10 @@ public class DropKnife : BasePlugin
     [GameEventHandler]
     public HookResult OnPlayerChat(EventPlayerChat @event, GameEventInfo @info)
     {
+        // 取得玩家訊息並直接轉換成小寫
         string message = @event.Text.ToLower().Trim();
 
+        // 判斷指令（支援大小寫不分，以及常用指令格式）
         if (message.Equals("!drop") || message.Equals("/drop") || message.Equals(".drop") || 
             message.Equals("!d") || message.Equals("/d") || message.Equals(".d"))
         {
@@ -46,6 +46,7 @@ public class DropKnife : BasePlugin
                     return HookResult.Continue;
                 }
 
+                // 執行發刀
                 DoDropKnife(player);
             }
             catch (System.Exception)
@@ -64,36 +65,24 @@ public class DropKnife : BasePlugin
             if (dropedPlayerSlots.Contains((int)sender.UserId!)) return;
         }
 
-        var senderPawn = sender.PlayerPawn.Value;
-        if (senderPawn == null) return;
-
-        var senderPosition = senderPawn.AbsOrigin;
-        if (senderPosition == null) return;
-
-        // 計算在發言者前方稍微偏上的位置生成（避免卡在地板裡）
-        var spawnPosition = new Vector(
-            senderPosition.X,
-            senderPosition.Y,
-            senderPosition.Z + 20.0f
-        );
-
         foreach (CCSPlayerController player in Utilities.GetPlayers())
         {
-            // 判定隊友是否活著且同隊
             if (player.PawnIsAlive && player.Team == sender.Team)
             {
-                // 使用官方最標準的安全方法實體化一把小刀
-                var knifeEntity = Utilities.CreateEntityByName<CBasePlayerWeapon>("weapon_knife");
+                nint knife_pointer = sender.GiveNamedItem("weapon_knife");
+                CBasePlayerWeapon knife = new(knife_pointer);
                 
-                if (knifeEntity != null && knifeEntity.IsValid)
-                {
-                    // 將刀子傳送到發言者身邊，讓它自然掉落到地上
-                    knifeEntity.Teleport(spawnPosition, new QAngle(0, 0, 0), new Vector(0, 0, 0));
-                    knifeEntity.DispatchSpawn();
-                }
+                var playerPosition = player.PlayerPawn.Value!.AbsOrigin;
+                if (playerPosition == null) return;
+
+                var newPosition = new CounterStrikeSharp.API.Modules.Utils.Vector(
+                    playerPosition.X,
+                    playerPosition.Y,
+                    playerPosition.Z + 50.0f
+                );
+                knife.Teleport(newPosition);
             }
         }
-        
         dropedPlayerSlots.Add((int)sender.UserId!);
     }
 
