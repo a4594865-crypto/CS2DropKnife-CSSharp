@@ -10,7 +10,7 @@ namespace DropKnife;
 public class DropKnife : BasePlugin
 {
     public override string ModuleName => "Drop Knife Plugin";
-    public override string ModuleVersion => "0.0.4"; 
+    public override string ModuleVersion => "0.0.5"; 
     public override string ModuleAuthor => "PanheadGG";
 
     private static bool drop_knife_only_one_time = true;
@@ -18,10 +18,8 @@ public class DropKnife : BasePlugin
 
     public override void Load(bool hotReload)
     {
-        Console.WriteLine("Drop Knife Plugin Loaded! (Smart E-Pick Mode)");
-        
-        // 【核心新增】監聽玩家的「按 E 或是走過去想要裝備武器」的動作
-        RegisterListener<Listeners.OnWeaponCanUse>(OnWeaponCanUse);
+        // 移除所有錯誤的 Listener 註冊，保持乾淨
+        Console.WriteLine("Drop Knife Plugin Loaded! (Standard Safe Version)");
     }
 
     [GameEventHandler]
@@ -66,81 +64,37 @@ public class DropKnife : BasePlugin
             if (dropedPlayerSlots.Contains((int)sender.UserId!)) return;
         }
 
+        var senderPawn = sender.PlayerPawn.Value;
+        if (senderPawn == null) return;
+
+        var senderPosition = senderPawn.AbsOrigin;
+        if (senderPosition == null) return;
+
+        // 計算在發言者前方稍微偏上的位置生成（避免卡在地板裡）
+        var spawnPosition = new Vector(
+            senderPosition.X,
+            senderPosition.Y,
+            senderPosition.Z + 20.0f
+        );
+
         foreach (CCSPlayerController player in Utilities.GetPlayers())
         {
+            // 判定隊友是否活著且同隊
             if (player.PawnIsAlive && player.Team == sender.Team)
             {
-                var playerPawn = player.PlayerPawn.Value;
-                if (playerPawn == null) continue;
-
-                var playerPosition = playerPawn.AbsOrigin;
-                if (playerPosition == null) continue;
-
-                // 在隊友前方稍微偏上一點點生成，讓他看得到
-                var spawnPosition = new Vector(
-                    playerPosition.X,
-                    playerPosition.Y,
-                    playerPosition.Z + 40.0f
-                );
-
+                // 使用官方最標準的安全方法實體化一把小刀
                 var knifeEntity = Utilities.CreateEntityByName<CBasePlayerWeapon>("weapon_knife");
                 
                 if (knifeEntity != null && knifeEntity.IsValid)
                 {
+                    // 將刀子傳送到發言者身邊，讓它自然掉落到地上
                     knifeEntity.Teleport(spawnPosition, new QAngle(0, 0, 0), new Vector(0, 0, 0));
                     knifeEntity.DispatchSpawn();
                 }
             }
         }
+        
         dropedPlayerSlots.Add((int)sender.UserId!);
-    }
-
-    // 【核心新增】處理撿刀邏輯
-    private HookResult OnWeaponCanUse(CCSPlayerController player, CBasePlayerWeapon weapon)
-    {
-        if (player == null || !player.IsValid || !player.PawnIsAlive) return HookResult.Continue;
-        if (weapon == null || !weapon.IsValid) return HookResult.Continue;
-
-        // 如果玩家想要撿起的這把武器是小刀 (地上別人發的刀)
-        if (weapon.DesignerName.Contains("knife") || weapon.DesignerName.Contains("bayonet"))
-        {
-            // 檢查玩家身上有沒有原本的舊刀
-            if (player.PlayerPawn.Value != null && player.PlayerPawn.Value.WeaponServices != null)
-            {
-                var myWeapons = player.PlayerPawn.Value.WeaponServices.MyWeapons;
-                if (myWeapons != null)
-                {
-                    CBasePlayerWeapon? existingKnife = null;
-
-                    foreach (var weaponHandle in myWeapons)
-                    {
-                        if (weaponHandle != null && weaponHandle.IsValid)
-                        {
-                            var w = weaponHandle.Value;
-                            // 找到了他身上正在持有的舊刀
-                            if (w != null && w.Index != weapon.Index && (w.DesignerName.Contains("knife") || w.DesignerName.Contains("bayonet")))
-                            {
-                                existingKnife = w;
-                                break;
-                            }
-                        }
-                    }
-
-                    // 如果身上確實有舊刀，且他正試圖撿起地上的新刀
-                    if (existingKnife != null)
-                    {
-                        // 秘密幫他把舊刀給拔除並銷毀，清出背包空間！
-                        player.RemoveWeapon(existingKnife);
-                        existingKnife.Remove();
-
-                        // 空間空出來的瞬間，允許他撿起地上的新刀
-                        return HookResult.Continue;
-                    }
-                }
-            }
-        }
-
-        return HookResult.Continue;
     }
 
     [ConsoleCommand("drop_knife_only_one_time", "Drop times control")]
