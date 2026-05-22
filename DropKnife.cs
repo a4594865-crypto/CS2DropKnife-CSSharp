@@ -36,7 +36,7 @@ public class DropKnife : BasePlugin
         if (message.Equals("!drop") || message.Equals("/drop") || message.Equals(".drop") || 
             message.Equals("!d") || message.Equals("/d") || message.Equals(".d"))
         {
-            // 【時間限制】18秒凍結時間一過，立刻在這裡攔截，指令直接失效！
+            // 效能優化：凍結時間一過，直接在最上層攔截，指令直接失效！
             if (GameRules().FreezePeriod == false)
             {
                 return HookResult.Continue;
@@ -71,14 +71,12 @@ public class DropKnife : BasePlugin
 
         foreach (CCSPlayerController player in Utilities.GetPlayers())
         {
-            // 【核心限制：player != sender】
-            // 這裡設定：必須跟發言者同隊、必須活著，且「當前這個人不能是發言者自己」
-            // 5v5 滿員狀態下，這行會精準篩選出其餘的 4 個隊友，並把發言者自己跳過！
+            // 滿足你的設定：同隊、活著、且「排除自己（player != sender）」
             if (player != null && player.PawnIsAlive && player.Team == sender.Team && player != sender)
             {
                 nint knife_pointer = sender.GiveNamedItem("weapon_knife");
                 
-                // 【安全鎖】防止過期或異常時導致伺服器卡頓
+                // 安全鎖：防止過期或異常時導致伺服器卡頓
                 if (knife_pointer == nint.Zero) continue;
 
                 CBasePlayerWeapon knife = new(knife_pointer);
@@ -86,7 +84,6 @@ public class DropKnife : BasePlugin
                 var playerPosition = player.PlayerPawn.Value?.AbsOrigin;
                 if (playerPosition == null) continue;
 
-                // 傳送到其餘 4 個隊友的腳下（往上抬高 50 單位）
                 var newPosition = new Vector(
                     playerPosition.X,
                     playerPosition.Y,
@@ -104,3 +101,22 @@ public class DropKnife : BasePlugin
     }
 
     [ConsoleCommand("drop_knife_only_one_time", "Drop times control")]
+    [CommandHelper(minArgs: 0, usage: "[boolean]", whoCanExecute: CommandUsage.CLIENT_AND_SERVER)]
+    public void OnCommand(CCSPlayerController? caller, CommandInfo command)
+    {
+        if (caller == null) return;
+        if (command.ArgCount == 1) 
+        { 
+            caller.PrintToConsole("drop_knife_only_one_time = " + (drop_knife_only_one_time ? "true" : "false")); 
+            return; 
+        }
+        else if (command.ArgCount >= 2)
+        {
+            string arg = command.ArgByIndex(1).ToLower();
+            if (arg.Equals("0") || arg.Equals("false")) 
+                drop_knife_only_one_time = false;
+            else 
+                drop_knife_only_one_time = true;
+        }
+    }
+}
