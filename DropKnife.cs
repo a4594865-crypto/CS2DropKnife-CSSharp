@@ -3,13 +3,14 @@ using CounterStrikeSharp.API.Core;
 using CounterStrikeSharp.API.Core.Attributes.Registration;
 using CounterStrikeSharp.API.Modules.Commands;
 using CounterStrikeSharp.API.Modules.Events;
+using System.Linq; // 引入 LINQ 支援 FirstOrDefault
 
 namespace DropKnife;
 
 public class DropKnife : BasePlugin
 {
     public override string ModuleName => "Drop Knife Plugin";
-    public override string ModuleVersion => "0.0.1";
+    public override string ModuleVersion => "0.0.1_FreezeFix"; // 標記為加入凍結時間版
     public override string ModuleAuthor => "PanheadGG";
 
     private static bool drop_knife_only_one_time = true;
@@ -37,6 +38,13 @@ public class DropKnife : BasePlugin
         if (message.Equals("!drop") || message.Equals("/drop") || message.Equals(".drop") || 
             message.Equals("!d") || message.Equals("/d") || message.Equals(".d"))
         {
+            // 💡 這是幫你加入的凍結時間攔截邏輯
+            var gameRules = GameRules();
+            if (gameRules == null || gameRules.FreezePeriod == false)
+            {
+                return HookResult.Continue; // 凍結時間一過，直接攔截令其失效
+            }
+
             int playerSlot = @event.Userid;
             try
             {
@@ -84,6 +92,19 @@ public class DropKnife : BasePlugin
             }
         }
         dropedPlayerSlots.Add((int)sender.UserId!);
+    }
+
+    // 💡 這是配合凍結時間，加入的安全獲取 GameRules 函數（防止換圖崩潰）
+    private static CCSGameRules? GameRules()
+    {
+        try
+        {
+            return Utilities.FindAllEntitiesByDesignerName<CCSGameRulesProxy>("cs_gamerules").FirstOrDefault()?.GameRules;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     [ConsoleCommand("drop_knife_only_one_time", "Drop times control")]
