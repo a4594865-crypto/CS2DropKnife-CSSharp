@@ -16,7 +16,8 @@ jobs:
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
-        dotnet-version: 8.0.x # CSSharp 插件通常需要 .NET 8
+        dotnet-version: 10.0.x
+        dotnet-quality: 'preview' # 🎯 確保 GitHub 能抓到預覽版的 .NET 10 SDK
 
     - name: Restore dependencies
       run: dotnet restore
@@ -28,4 +29,4 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: DropKnife-Plugin
-        path: bin/Release/net10.0/DropKnife.dll
+        path: bin/Release/net10.0/DropKnife.dll # 🎯 精準對齊 .NET 10 的輸出路徑
