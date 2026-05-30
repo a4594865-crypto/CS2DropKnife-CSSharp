@@ -28,4 +28,4 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: DropKnife-Plugin
-        path: bin/Release/net8.0/DropKnife.dll
+        path: bin/Release/net10.0/DropKnife.dll
