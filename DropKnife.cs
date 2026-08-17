@@ -3,7 +3,6 @@ using CounterStrikeSharp.API.Core;
 using CounterStrikeSharp.API.Core.Attributes.Registration;
 using CounterStrikeSharp.API.Modules.Commands;
 using CounterStrikeSharp.API.Modules.Events;
-using System.Linq; // 引入 LINQ 支援 FirstOrDefault
 
 namespace DropKnife;
 
@@ -99,7 +98,12 @@ public class DropKnife : BasePlugin
     {
         try
         {
-            return Utilities.FindAllEntitiesByDesignerName<CCSGameRulesProxy>("cs_gamerules").FirstOrDefault()?.GameRules;
+            // 將 LINQ 的 FirstOrDefault 替換為 foreach 迴圈，避免記憶體配置導致伺服器抖動
+            foreach (var entity in Utilities.FindAllEntitiesByDesignerName<CCSGameRulesProxy>("cs_gamerules"))
+            {
+                return entity.GameRules;
+            }
+            return null;
         }
         catch
         {
