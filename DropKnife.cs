@@ -9,11 +9,11 @@ namespace DropKnife;
 public class DropKnife : BasePlugin
 {
     public override string ModuleName => "Drop Knife Plugin";
-    public override string ModuleVersion => "0.0.1_FreezeFix"; // 標記為加入凍結時間版
+    public override string ModuleVersion => "0.0.1_FreezeFix";
     public override string ModuleAuthor => "PanheadGG";
 
     private static bool drop_knife_only_one_time = true;
-    private static List<int> dropedPlayerSlots = [];
+    private static List<int> dropedPlayerSlots = []; //
 
     public override void Load(bool hotReload)
     {
@@ -28,18 +28,16 @@ public class DropKnife : BasePlugin
     }
 
     [GameEventHandler]
-    public HookResult OnPlayerChat(EventPlayerChat @event, GameEventInfo @info)
+    public HookResult OnPlayerChat(EventPlayerChat @event, GameEventInfo info)
     {
         // 取得玩家訊息並直接轉換成小寫
         string message = @event.Text.ToLower().Trim();
 
-        // 判斷指令（支援大小寫不分，以及常用指令格式）
-        if (message.Equals("!drop") || message.Equals("/drop") || message.Equals(".drop") || 
-            message.Equals("!d") || message.Equals("/d") || message.Equals(".d"))
+        // C# 模式匹配 (Pattern Matching)，效能等同底層 switch 且零垃圾
+        if (message is "!drop" or "/drop" or ".drop" or "!d" or "/d" or ".d")
         {
-            // 💡 這是幫你加入的凍結時間攔截邏輯
-            var gameRules = GameRules();
-            if (gameRules == null || gameRules.FreezePeriod == false)
+            // 加入的凍結時間攔截邏輯（轉換為屬性模式匹配防 null）
+            if (GameRules() is not { FreezePeriod: true })
             {
                 return HookResult.Continue; // 凍結時間一過，直接攔截令其失效
             }
@@ -47,8 +45,10 @@ public class DropKnife : BasePlugin
             int playerSlot = @event.Userid;
             try
             {
-                CCSPlayerController player = Utilities.GetPlayerFromSlot(playerSlot)!;
-                if (player == null || !player.IsValid || player.IsBot || player.IsHLTV)
+                CCSPlayerController? player = Utilities.GetPlayerFromSlot(playerSlot);
+                
+                // C# 屬性模式匹配，一行解決 null 判斷與狀態檢查
+                if (player is not { IsValid: true, IsBot: false, IsHLTV: false })
                 {
                     return HookResult.Continue;
                 }
@@ -67,22 +67,24 @@ public class DropKnife : BasePlugin
 
     public void DoDropKnife(CCSPlayerController sender)
     {
-        if (drop_knife_only_one_time)
+        // null 屬性安全防護，避免直接強制轉型 (int) 造成空參考
+        if (drop_knife_only_one_time && sender.UserId is not null && dropedPlayerSlots.Contains((int)sender.UserId))
         {
-            if (dropedPlayerSlots.Contains((int)sender.UserId!)) return;
+            return;
         }
 
         foreach (CCSPlayerController player in Utilities.GetPlayers())
         {
-            if (player.PawnIsAlive && player.Team == sender.Team)
+            // 屬性模式匹配驗證 PawnIsAlive
+            if (player is { PawnIsAlive: true } && player.Team == sender.Team)
             {
                 nint knife_pointer = sender.GiveNamedItem("weapon_knife");
                 CBasePlayerWeapon knife = new(knife_pointer);
                 
-                var playerPosition = player.PlayerPawn.Value!.AbsOrigin;
-                if (playerPosition == null) return;
+                // C# 解構模式防 null，確保座標不為空
+                if (player.PlayerPawn.Value?.AbsOrigin is not { } playerPosition) return;
 
-                var newPosition = new CounterStrikeSharp.API.Modules.Utils.Vector(
+                CounterStrikeSharp.API.Modules.Utils.Vector newPosition = new(
                     playerPosition.X,
                     playerPosition.Y,
                     playerPosition.Z + 50.0f
@@ -90,10 +92,15 @@ public class DropKnife : BasePlugin
                 knife.Teleport(newPosition);
             }
         }
-        dropedPlayerSlots.Add((int)sender.UserId!);
+        
+        // 加入防護
+        if (sender.UserId is not null)
+        {
+            dropedPlayerSlots.Add((int)sender.UserId);
+        }
     }
 
-    // 💡 這是配合凍結時間，加入的安全獲取 GameRules 函數（防止換圖崩潰）
+    // 加入的安全獲取 GameRules 函數（防止換圖崩潰）
     private static CCSGameRules? GameRules()
     {
         try
@@ -115,19 +122,20 @@ public class DropKnife : BasePlugin
     [CommandHelper(minArgs: 0, usage: "[boolean]", whoCanExecute: CommandUsage.CLIENT_AND_SERVER)]
     public void OnCommand(CCSPlayerController? caller, CommandInfo command)
     {
-        if (caller == null) return;
+        if (caller is null) return; // 
+        
         if (command.ArgCount == 1) 
         { 
-            caller.PrintToConsole("drop_knife_only_one_time = " + (drop_knife_only_one_time ? "true" : "false")); 
+            //  C# 字串內插 (String Interpolation)
+            caller.PrintToConsole($"drop_knife_only_one_time = {(drop_knife_only_one_time ? "true" : "false")}"); 
             return; 
         }
-        else if (command.ArgCount >= 2)
+        
+        if (command.ArgCount >= 2)
         {
             string arg = command.ArgByIndex(1).ToLower();
-            if (arg.Equals("0") || arg.Equals("false")) 
-                drop_knife_only_one_time = false;
-            else 
-                drop_knife_only_one_time = true;
+            //利用邏輯模式匹配 (Logical Pattern)
+            drop_knife_only_one_time = arg is not ("0" or "false");
         }
     }
 }
