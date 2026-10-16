@@ -3,6 +3,7 @@ using CounterStrikeSharp.API.Core;
 using CounterStrikeSharp.API.Core.Attributes.Registration;
 using CounterStrikeSharp.API.Modules.Commands;
 using CounterStrikeSharp.API.Modules.Events;
+using CounterStrikeSharp.API.Modules.Utils;
 using System;
 using System.Collections.Generic;
 
@@ -16,20 +17,24 @@ public class DropKnife : BasePlugin
 
     private static bool drop_knife_only_one_time = true;
     
-    // 【效能修正】：將 List 改為 HashSet，將尋找速度從 O(n) 物理升級為 O(1) 極速比對
-    private static HashSet<int> dropedPlayerSlots = []; 
+    // 【0-GC 優化】：預先配置容量 (16)，避免開局第一次丟刀時發生 HashSet 底層擴容配置
+    private static readonly HashSet<int> dropedPlayerSlots = new(16); 
 
-    // 【新增】：GameRules 快取，消滅實體搜尋浪費
-    private static CCSGameRules? _cachedGameRules = null;
+    // 【0-GC 安全快取】：快取 CCSGameRulesProxy 實體，兼具 IsValid 記憶體安全驗證與 0 全圖掃描
+    private static CCSGameRulesProxy? _cachedGameRulesProxy = null;
+
+    // 【0-GC 優化】：預先建立共用座標容器，消除發刀迴圈中每次 new Vector() 的堆積記憶體配置
+    private static readonly Vector _reusableDropPosition = new(0f, 0f, 0f);
 
     public override void Load(bool hotReload)
     {
         Console.WriteLine("Drop Knife Plugin Loaded!");
         
-        // 換地圖時清空 GameRules 快取
+        // 換地圖時清空 GameRules 快取与紀錄
         RegisterListener<Listeners.OnMapStart>(map => 
         {
-            _cachedGameRules = null;
+            _cachedGameRulesProxy = null;
+            dropedPlayerSlots.Clear();
         });
     }
 
@@ -52,7 +57,7 @@ public class DropKnife : BasePlugin
             return HookResult.Continue;
         }
 
-        // 呼叫極速快取的 GameRules 判斷凍結時間
+        // 呼叫極速安全快取的 GameRules 判斷凍結時間
         if (GameRules() is not { FreezePeriod: true })
         {
             return HookResult.Continue; // 凍結時間一過，直接攔截令其失效
@@ -80,65 +85,85 @@ public class DropKnife : BasePlugin
         return HookResult.Continue;
     }
 
-    // 將比對獨立為一個零分配的輔助函式
-    private bool IsDropCommand(ReadOnlySpan<char> message)
+    // 【0-GC 極速過濾】：先用長度 (2 或 5) 與字首符號過濾掉 99.9% 的一般聊天訊息，免除重複字串比對
+    private static bool IsDropCommand(ReadOnlySpan<char> message)
     {
-        return message.Equals("!drop", StringComparison.OrdinalIgnoreCase) ||
-               message.Equals("/drop", StringComparison.OrdinalIgnoreCase) ||
-               message.Equals(".drop", StringComparison.OrdinalIgnoreCase) ||
-               message.Equals("!d", StringComparison.OrdinalIgnoreCase) ||
-               message.Equals("/d", StringComparison.OrdinalIgnoreCase) ||
-               message.Equals(".d", StringComparison.OrdinalIgnoreCase);
+        int len = message.Length;
+        if (len is not (2 or 5)) return false;
+
+        char prefix = message[0];
+        if (prefix is not ('!' or '/' or '.')) return false;
+
+        if (len == 2)
+        {
+            char c1 = message[1];
+            return c1 is 'd' or 'D';
+        }
+
+        return message[1..].Equals("drop", StringComparison.OrdinalIgnoreCase);
     }
 
     public void DoDropKnife(CCSPlayerController sender)
     {
-        // null 屬性安全防護，避免直接強制轉型 (int) 造成空參考
-        if (drop_knife_only_one_time && sender.UserId is not null && dropedPlayerSlots.Contains((int)sender.UserId))
+        // null 屬性安全防護，避免重複拆箱與空參考
+        if (sender.UserId is int senderUserId)
         {
-            return;
+            if (drop_knife_only_one_time && dropedPlayerSlots.Contains(senderUserId))
+            {
+                return;
+            }
         }
 
-        // [保留] 由於只在有人打 !drop 時觸發一次，這裡使用 GetPlayers() 效能浪費極小，屬安全範圍
+        CsTeam senderTeam = sender.Team;
+
+        // 由於只在有人打 !drop 時觸發一次，這裡使用 GetPlayers() 屬安全範圍
         foreach (CCSPlayerController player in Utilities.GetPlayers())
         {
-            // 屬性模式匹配驗證 PawnIsAlive
-            if (player is { PawnIsAlive: true } && player.Team == sender.Team)
+            // 屬性模式匹配驗證 PawnIsAlive 與同隊伍
+            if (player is { IsValid: true, PawnIsAlive: true } && player.Team == senderTeam)
             {
-                nint knife_pointer = sender.GiveNamedItem("weapon_knife");
-                CBasePlayerWeapon knife = new(knife_pointer);
-                
-                // C# 解構模式防 null，確保座標不為空
-                if (player.PlayerPawn.Value?.AbsOrigin is not { } playerPosition) continue; // 將 return 改為 continue 避免一人出錯中斷所有人
+                // 【修復順序】：先確認隊友座標有效，才生成刀子實體，防止座標為空時殘留多餘刀子
+                if (player.PlayerPawn.Value?.AbsOrigin is not { } playerPosition) continue;
 
-                CounterStrikeSharp.API.Modules.Utils.Vector newPosition = new(
-                    playerPosition.X,
-                    playerPosition.Y,
-                    playerPosition.Z + 50.0f
-                );
-                knife.Teleport(newPosition);
+                nint knife_pointer = sender.GiveNamedItem("weapon_knife");
+                if (knife_pointer == nint.Zero) continue;
+
+                CBasePlayerWeapon knife = new(knife_pointer);
+                if (!knife.IsValid) continue;
+
+                // 【0-GC 優化】：複用靜態 Vector 容器，0 記憶體垃圾配置
+                _reusableDropPosition.X = playerPosition.X;
+                _reusableDropPosition.Y = playerPosition.Y;
+                _reusableDropPosition.Z = playerPosition.Z + 50.0f;
+
+                knife.Teleport(_reusableDropPosition);
             }
         }
         
-        // 加入防護
-        if (sender.UserId is not null)
+        // 加入紀錄防護
+        if (sender.UserId is int uid)
         {
-            dropedPlayerSlots.Add((int)sender.UserId);
+            dropedPlayerSlots.Add(uid);
         }
     }
 
-    // 【核心效能修正】：快取 GameRules，0 毫秒極速讀取
+    // 【核心效能與安全修正】：快取 CCSGameRulesProxy 並驗證 IsValid，0 毫秒極速讀取且杜絕野指標崩潰
     private static CCSGameRules? GameRules()
     {
-        if (_cachedGameRules != null) return _cachedGameRules;
+        if (_cachedGameRulesProxy is { IsValid: true, GameRules: not null })
+        {
+            return _cachedGameRulesProxy.GameRules;
+        }
 
         try
         {
-            // 將 LINQ 的 FirstOrDefault 替換為 foreach 迴圈，避免記憶體配置導致伺服器抖動
             foreach (var entity in Utilities.FindAllEntitiesByDesignerName<CCSGameRulesProxy>("cs_gamerules"))
             {
-                _cachedGameRules = entity.GameRules;
-                return _cachedGameRules;
+                if (entity is { IsValid: true, GameRules: not null } proxy)
+                {
+                    _cachedGameRulesProxy = proxy;
+                    return proxy.GameRules;
+                }
             }
             return null;
         }
@@ -163,9 +188,10 @@ public class DropKnife : BasePlugin
         
         if (command.ArgCount >= 2)
         {
-            string arg = command.ArgByIndex(1).ToLower();
-            // 利用邏輯模式匹配 (Logical Pattern)
-            drop_knife_only_one_time = arg is not ("0" or "false");
+            // 【0-GC 優化】：改用 ReadOnlySpan 比對，消除 .ToLower() 產生的字串垃圾配置
+            ReadOnlySpan<char> arg = command.ArgByIndex(1).AsSpan().Trim();
+            drop_knife_only_one_time = !(arg.Equals("0", StringComparison.OrdinalIgnoreCase) || 
+                                         arg.Equals("false", StringComparison.OrdinalIgnoreCase));
         }
     }
 }
